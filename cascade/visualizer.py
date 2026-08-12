@@ -16,8 +16,6 @@ Two visualizations:
 """
 
 import math
-import matplotlib
-matplotlib.use("Agg")          # works without a display; remove for interactive
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import networkx as nx
@@ -115,8 +113,8 @@ def plot_dependency_graph(G, save_path="dependency_graph.png"):
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches="tight",
                 facecolor=fig.get_facecolor())
-    plt.close()
     print(f"[SAVED] {save_path}")
+    plt.show(block=False)
 
 
 # ── 2. Cascade simulation panels ──────────────────────────────────────────
@@ -255,5 +253,5 @@ def plot_cascade_simulation(G, sim_result, seed_failures,
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches="tight",
                 facecolor=fig.get_facecolor())
-    plt.close()
     print(f"[SAVED] {save_path}")
+    plt.show()

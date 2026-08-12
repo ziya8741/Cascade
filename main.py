@@ -93,3 +93,6 @@ def main():
     print("  cascade_simulation.png - step-by-step failure + intervention chart")
     print()
 
+
+if __name__ == "__main__":
+    main()
