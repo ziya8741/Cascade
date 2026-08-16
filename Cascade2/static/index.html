@@ -1,0 +1,1121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Flood Cascade Propagation — Live Simulation</title>
+  <meta name="description" content="Real-time flood and hazard cascade propagation through water and agriculture infrastructure networks. Visualizes damage propagation, time-to-impact, and critical intervention points." />
+
+  <!-- D3.js for graph visualization -->
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+
+  <style>
+    /* ── CSS Custom Properties (Design Tokens) ─────────────────────────────── */
+    :root {
+      --bg:          #0a0e1a;
+      --bg2:         #111827;
+      --bg3:         #1e2535;
+      --border:      #2a3555;
+      --accent:      #3b82f6;
+      --accent2:     #6366f1;
+      --text:        #e2e8f0;
+      --text-dim:    #8899bb;
+      --text-muted:  #4a5a7a;
+      --green:       #22c55e;
+      --yellow:      #f59e0b;
+      --orange:      #f97316;
+      --red:         #ef4444;
+      --red-bright:  #ff2d55;
+      --glow-blue:   0 0 18px rgba(59,130,246,0.45);
+      --glow-red:    0 0 18px rgba(239,68,68,0.55);
+      --radius:      10px;
+      --font:        'Inter', 'Segoe UI', system-ui, sans-serif;
+    }
+
+    /* ── Reset & Base ────────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; overflow: hidden; }
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Top Header Bar ──────────────────────────────────────────────────────── */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 10px 20px;
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      z-index: 10;
+    }
+    header h1 {
+      font-size: 1.05rem;
+      font-weight: 700;
+      background: linear-gradient(90deg, #60a5fa, #a78bfa);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      white-space: nowrap;
+    }
+    .header-badges {
+      display: flex;
+      gap: 8px;
+      margin-left: 4px;
+    }
+    .badge {
+      font-size: 0.65rem;
+      padding: 2px 8px;
+      border-radius: 20px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+    .badge-blue  { background: rgba(59,130,246,0.2); color: #60a5fa; border: 1px solid rgba(59,130,246,0.35); }
+    .badge-green { background: rgba(34,197,94,0.15); color: #4ade80; border: 1px solid rgba(34,197,94,0.3); }
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--red);
+      flex-shrink: 0;
+      transition: background 0.4s;
+    }
+    .status-dot.connected { background: var(--green); box-shadow: 0 0 8px var(--green); }
+    .status-label { font-size: 0.72rem; color: var(--text-dim); }
+
+    /* ── Main Layout ─────────────────────────────────────────────────────────── */
+    .layout {
+      display: grid;
+      grid-template-columns: 240px 1fr 280px;
+      grid-template-rows: 1fr;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── Left Panel — Controls ───────────────────────────────────────────────── */
+    .panel-left {
+      background: var(--bg2);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      padding: 14px 12px;
+      gap: 14px;
+    }
+    .panel-title {
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* Scenario Buttons */
+    .scenario-grid { display: flex; flex-direction: column; gap: 6px; }
+    .scenario-btn {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding: 10px 12px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: var(--bg3);
+      cursor: pointer;
+      transition: all 0.2s;
+      text-align: left;
+    }
+    .scenario-btn:hover {
+      border-color: var(--accent);
+      background: rgba(59,130,246,0.1);
+      box-shadow: var(--glow-blue);
+      transform: translateY(-1px);
+    }
+    .scenario-btn.active {
+      border-color: var(--accent2);
+      background: rgba(99,102,241,0.15);
+      box-shadow: 0 0 14px rgba(99,102,241,0.4);
+    }
+    .scenario-btn-label {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: #60a5fa;
+    }
+    .scenario-btn-desc {
+      font-size: 0.65rem;
+      color: var(--text-dim);
+      line-height: 1.4;
+    }
+
+    /* Reset Button */
+    .reset-btn {
+      padding: 8px;
+      border-radius: var(--radius);
+      border: 1px solid rgba(239,68,68,0.4);
+      background: rgba(239,68,68,0.08);
+      color: #fca5a5;
+      cursor: pointer;
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      transition: all 0.2s;
+    }
+    .reset-btn:hover {
+      background: rgba(239,68,68,0.18);
+      border-color: var(--red);
+      box-shadow: var(--glow-red);
+    }
+
+    /* Hazard Sliders */
+    .slider-group { display: flex; flex-direction: column; gap: 8px; }
+    .slider-row { display: flex; flex-direction: column; gap: 3px; }
+    .slider-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.65rem;
+      color: var(--text-dim);
+    }
+    .slider-value { color: var(--text); font-weight: 600; }
+    input[type="range"] {
+      width: 100%;
+      height: 4px;
+      -webkit-appearance: none;
+      border-radius: 2px;
+      background: var(--border);
+      outline: none;
+      cursor: pointer;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 12px; height: 12px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 6px rgba(59,130,246,0.6);
+      cursor: pointer;
+    }
+    .run-custom-btn {
+      padding: 9px;
+      border-radius: var(--radius);
+      border: 1px solid rgba(59,130,246,0.5);
+      background: rgba(59,130,246,0.12);
+      color: #93c5fd;
+      cursor: pointer;
+      font-size: 0.73rem;
+      font-weight: 700;
+      transition: all 0.2s;
+    }
+    .run-custom-btn:hover {
+      background: rgba(59,130,246,0.22);
+      box-shadow: var(--glow-blue);
+    }
+
+    /* Color Legend */
+    .legend { display: flex; flex-direction: column; gap: 4px; }
+    .legend-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.65rem;
+      color: var(--text-dim);
+    }
+    .legend-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    /* ── Center — Graph Visualization ───────────────────────────────────────── */
+    .panel-center {
+      position: relative;
+      overflow: hidden;
+      background: radial-gradient(ellipse at 50% 30%, #0d1529 0%, var(--bg) 100%);
+    }
+    #graph-svg {
+      width: 100%;
+      height: 100%;
+    }
+
+    /* SVG node styles */
+    .node-circle {
+      cursor: pointer;
+      stroke-width: 1.5;
+      transition: r 0.3s;
+      filter: drop-shadow(0 0 4px rgba(0,0,0,0.6));
+    }
+    .node-label {
+      font-size: 9px;
+      font-family: var(--font);
+      fill: #c8d8f8;
+      pointer-events: none;
+      text-anchor: middle;
+      dominant-baseline: central;
+      font-weight: 500;
+    }
+    .link-arrow {
+      stroke-opacity: 0.55;
+      transition: stroke 0.3s;
+    }
+
+    /* Layer band labels */
+    .layer-band {
+      pointer-events: none;
+    }
+    .layer-label {
+      font-size: 9px;
+      font-family: var(--font);
+      fill: rgba(136,153,187,0.6);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+
+    /* Tooltip */
+    #tooltip {
+      position: absolute;
+      pointer-events: none;
+      background: rgba(10,14,26,0.95);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 14px;
+      font-size: 0.72rem;
+      max-width: 240px;
+      opacity: 0;
+      transition: opacity 0.15s;
+      z-index: 50;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+    }
+    #tooltip.visible { opacity: 1; }
+    .tt-title { font-weight: 700; color: var(--text); margin-bottom: 4px; font-size: 0.78rem; }
+    .tt-row { display: flex; justify-content: space-between; gap: 16px; margin-top: 2px; }
+    .tt-key { color: var(--text-dim); }
+    .tt-val { font-weight: 600; }
+
+    /* ── Right Panel — Outputs ───────────────────────────────────────────────── */
+    .panel-right {
+      background: var(--bg2);
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .panel-right-tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 9px 4px;
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      background: transparent;
+      color: var(--text-dim);
+      border: none;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+    }
+    .tab-btn.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+    .tab-content { display: none; flex: 1; overflow-y: auto; padding: 12px 10px; }
+    .tab-content.active { display: flex; flex-direction: column; gap: 8px; }
+
+    /* Intervention cards */
+    .intervention-card {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .intervention-card:hover {
+      border-color: var(--accent);
+      background: rgba(59,130,246,0.08);
+      transform: translateX(2px);
+    }
+    .intervention-card.rank-1 { border-color: rgba(251,191,36,0.6); }
+    .intervention-card.rank-2 { border-color: rgba(148,163,184,0.5); }
+    .intervention-card.rank-3 { border-color: rgba(180,128,93,0.5); }
+    .int-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; }
+    .int-rank {
+      font-size: 0.65rem;
+      font-weight: 800;
+      color: var(--text-muted);
+      flex-shrink: 0;
+      padding-top: 2px;
+    }
+    .rank-1 .int-rank { color: #fbbf24; }
+    .rank-2 .int-rank { color: #94a3b8; }
+    .rank-3 .int-rank { color: #b4805d; }
+    .int-name { font-size: 0.75rem; font-weight: 700; color: var(--text); line-height: 1.3; }
+    .int-state { font-size: 0.72rem; font-weight: 600; margin-top: 6px; }
+    .int-bar-wrap {
+      background: var(--border);
+      border-radius: 3px;
+      height: 4px;
+      margin-top: 6px;
+    }
+    .int-bar {
+      height: 4px;
+      border-radius: 3px;
+      background: linear-gradient(90deg, #ef4444, #f97316);
+      transition: width 0.4s ease;
+    }
+    .int-meta { display: flex; gap: 12px; margin-top: 5px; }
+    .int-meta-item { font-size: 0.62rem; color: var(--text-dim); }
+    .int-meta-val { font-weight: 700; color: var(--text); }
+
+    /* Timeline log */
+    #timeline-log {
+      font-size: 0.67rem;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .log-entry {
+      padding: 5px 8px;
+      border-radius: 6px;
+      background: var(--bg3);
+      border-left: 3px solid var(--border);
+      display: flex;
+      gap: 8px;
+      align-items: baseline;
+      animation: fadeIn 0.3s ease;
+    }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; } }
+    .log-time { color: var(--text-muted); flex-shrink: 0; font-family: monospace; }
+    .log-node { color: var(--text); font-weight: 600; flex: 1; }
+    .log-state { font-weight: 700; flex-shrink: 0; }
+    .log-entry.impact { border-left-color: var(--red); }
+    .log-entry.inject { border-left-color: var(--accent2); }
+
+    /* Stats panel */
+    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .stat-card {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .stat-label { font-size: 0.62rem; color: var(--text-dim); }
+    .stat-value { font-size: 1.15rem; font-weight: 800; }
+    .stat-value.danger { color: var(--red); }
+    .stat-value.warning { color: var(--orange); }
+    .stat-value.ok { color: var(--green); }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: var(--bg2); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #3a4566; }
+
+    /* Loading overlay */
+    #loading-overlay {
+      position: fixed; inset: 0;
+      background: var(--bg);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      z-index: 100;
+      gap: 16px;
+      transition: opacity 0.6s;
+    }
+    #loading-overlay.hidden { opacity: 0; pointer-events: none; }
+    .spinner {
+      width: 36px; height: 36px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-text { font-size: 0.85rem; color: var(--text-dim); }
+  </style>
+</head>
+<body>
+
+<!-- Loading Overlay -->
+<div id="loading-overlay">
+  <div class="spinner"></div>
+  <div class="loading-text">Connecting to simulation engine…</div>
+</div>
+
+<!-- Header -->
+<header>
+  <h1>⚡ Flood Cascade Propagation</h1>
+  <div class="header-badges">
+    <span class="badge badge-blue">NetworkX</span>
+    <span class="badge badge-blue">Noisy-OR</span>
+    <span class="badge badge-green">Live</span>
+  </div>
+  <div style="flex:1"></div>
+  <div class="status-dot" id="ws-dot"></div>
+  <span class="status-label" id="ws-label">Connecting…</span>
+</header>
+
+<!-- Main Layout -->
+<div class="layout">
+
+  <!-- LEFT PANEL -->
+  <div class="panel-left">
+
+    <!-- Scenarios -->
+    <div class="panel-title">Scenarios</div>
+    <div class="scenario-grid">
+      <button class="scenario-btn" id="btn-a" onclick="runScenario('a')">
+        <span class="scenario-btn-label">🌧  Scenario A</span>
+        <span class="scenario-btn-desc">Heavy Rainfall Spike<br>Rain 0.90 · River 0.85</span>
+      </button>
+      <button class="scenario-btn" id="btn-b" onclick="runScenario('b')">
+        <span class="scenario-btn-label">🌊  Scenario B</span>
+        <span class="scenario-btn-desc">Dam Release + Power Outage<br>Dam 1.00 · Power 0.90</span>
+      </button>
+      <button class="scenario-btn" id="btn-c" onclick="runScenario('c')">
+        <span class="scenario-btn-label">🌱  Scenario C</span>
+        <span class="scenario-btn-desc">Moderate Rain + Saturated Soil<br>Soil 0.90 · Rain 0.55</span>
+      </button>
+    </div>
+
+    <button class="reset-btn" onclick="resetGraph()">↺ Reset All States</button>
+
+    <!-- Hazard Sliders -->
+    <div class="panel-title">Manual Hazard Inputs</div>
+    <div class="slider-group" id="sliders"></div>
+    <button class="run-custom-btn" onclick="runCustom()">▶ Run Custom Scenario</button>
+
+    <!-- Legend -->
+    <div class="panel-title">Color Legend</div>
+    <div class="legend">
+      <div class="legend-row"><div class="legend-dot" style="background:#22c55e"></div>P ≤ 0.1 — Undamaged</div>
+      <div class="legend-row"><div class="legend-dot" style="background:#84cc16"></div>P ≤ 0.3 — Low risk</div>
+      <div class="legend-row"><div class="legend-dot" style="background:#f59e0b"></div>P ≤ 0.5 — Moderate</div>
+      <div class="legend-row"><div class="legend-dot" style="background:#f97316"></div>P ≤ 0.7 — High risk</div>
+      <div class="legend-row"><div class="legend-dot" style="background:#ef4444"></div>P > 0.7 — Critical</div>
+      <div class="legend-row" style="margin-top:4px">
+        <div style="width:10px;height:2px;background:#8899bb;flex-shrink:0;margin-top:4px"></div>
+        Edge — propagation link
+      </div>
+    </div>
+
+  </div>
+
+  <!-- CENTER — Graph -->
+  <div class="panel-center">
+    <svg id="graph-svg"></svg>
+    <div id="tooltip"></div>
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div class="panel-right">
+    <div class="panel-right-tabs">
+      <button class="tab-btn active" onclick="switchTab('interventions')">🎯 Interventions</button>
+      <button class="tab-btn" onclick="switchTab('timeline')">📋 Timeline</button>
+      <button class="tab-btn" onclick="switchTab('stats')">📊 Stats</button>
+    </div>
+
+    <div class="tab-content active" id="tab-interventions">
+      <div class="panel-title" style="border:none;padding-bottom:4px">Top Intervention Points</div>
+      <div id="intervention-list">
+        <div style="color:var(--text-muted);font-size:0.72rem;padding:8px">
+          Run a scenario or inject hazards to see critical intervention points.
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-timeline">
+      <div class="panel-title" style="border:none;padding-bottom:4px">Propagation Log</div>
+      <div id="timeline-log"></div>
+    </div>
+
+    <div class="tab-content" id="tab-stats">
+      <div class="panel-title" style="border:none;padding-bottom:4px">Live Statistics</div>
+      <div class="stats-grid" id="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Total Outcome Damage</div>
+          <div class="stat-value" id="stat-damage">0.000</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Nodes Above 0.3</div>
+          <div class="stat-value" id="stat-nodes-above">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Nodes at Impact (≥0.5)</div>
+          <div class="stat-value" id="stat-impact">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Propagation Events</div>
+          <div class="stat-value" id="stat-events">0</div>
+        </div>
+      </div>
+      <div style="margin-top:12px">
+        <div class="panel-title" style="border:none;padding-bottom:4px">Node States by Layer</div>
+        <div id="layer-breakdown" style="font-size:0.68rem;display:flex;flex-direction:column;gap:6px"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────────────────────────────────────
+
+let ws = null;
+let graphData = { nodes: [], edges: [] };
+let nodeStates = {};           // {node_id: current_state}
+let lastOutputs = null;
+let propagationEventCount = 0;
+let svgWidth = 0, svgHeight = 0;
+let simulation = null;
+let svgNodes = null, svgLinks = null, svgLabels = null;
+let nodeById = {};             // {id: d3 node datum}
+
+// Layer layout: Y positions (as fractions of height)
+const LAYER_Y = { 0: 0.08, 1: 0.28, 2: 0.52, 3: 0.72, 4: 0.90 };
+const LAYER_NAMES = {
+  0: "L0 · Hazard",
+  1: "L1 · Water Infrastructure",
+  2: "L2 · Agriculture",
+  3: "L3 · People Impacts",
+  4: "L4 · Final Impacts",
+};
+
+const HAZARD_NODES = [
+  "rainfall_intensity", "river_level", "reservoir_level", "reservoir_inflow",
+  "dam_gate_status", "soil_saturation", "power_outage",
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COLOR SCALE  — maps damage probability 0→1 to a color
+// ─────────────────────────────────────────────────────────────────────────────
+
+function stateColor(p) {
+  if (p <= 0.10) return '#22c55e';
+  if (p <= 0.30) return '#84cc16';
+  if (p <= 0.50) return '#f59e0b';
+  if (p <= 0.70) return '#f97316';
+  return '#ef4444';
+}
+
+function stateGlow(p) {
+  if (p <= 0.10) return 'none';
+  if (p <= 0.50) return `drop-shadow(0 0 5px rgba(249,115,22,0.5))`;
+  return `drop-shadow(0 0 10px rgba(239,68,68,0.75))`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WEBSOCKET
+// ─────────────────────────────────────────────────────────────────────────────
+
+function connectWS() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
+
+  ws.onopen = () => {
+    document.getElementById('ws-dot').classList.add('connected');
+    document.getElementById('ws-label').textContent = 'Connected';
+  };
+
+  ws.onclose = () => {
+    document.getElementById('ws-dot').classList.remove('connected');
+    document.getElementById('ws-label').textContent = 'Reconnecting…';
+    setTimeout(connectWS, 2000);
+  };
+
+  ws.onerror = () => {
+    document.getElementById('ws-label').textContent = 'Error';
+  };
+
+  ws.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+    handleWSMessage(msg);
+  };
+}
+
+function handleWSMessage(msg) {
+  if (msg.type === 'init') {
+    // Initial graph structure + state
+    graphData = msg.graph;
+    graphData.nodes.forEach(n => { nodeStates[n.id] = n.current_state; });
+    buildGraph();
+    document.getElementById('loading-overlay').classList.add('hidden');
+  }
+  else if (msg.type === 'update') {
+    nodeStates[msg.node] = msg.state;
+    updateNodeVisual(msg.node, msg.state);
+    addLogEntry(msg.time, msg.node, msg.state, 'propagation');
+    propagationEventCount++;
+    updateStatCount();
+  }
+  else if (msg.type === 'complete') {
+    lastOutputs = msg.outputs;
+    updateInterventionPanel(msg.outputs.intervention_ranking);
+    updateStatsPanel(msg.outputs);
+    updateLayerBreakdown();
+  }
+  else if (msg.type === 'reset') {
+    graphData.nodes.forEach(n => {
+      nodeStates[n.id] = 0;
+      updateNodeVisual(n.id, 0);
+    });
+    clearLog();
+    propagationEventCount = 0;
+    updateInterventionPanel([]);
+    updateStatsPanel(null);
+    updateLayerBreakdown();
+  }
+}
+
+function sendWS(obj) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(obj));
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// D3 GRAPH VISUALIZATION
+// ─────────────────────────────────────────────────────────────────────────────
+
+function buildGraph() {
+  const svg = d3.select('#graph-svg');
+  svg.selectAll('*').remove();
+
+  const rect = document.getElementById('graph-svg').getBoundingClientRect();
+  svgWidth  = rect.width;
+  svgHeight = rect.height;
+
+  // Arrow marker definition
+  svg.append('defs').append('marker')
+    .attr('id', 'arrowhead')
+    .attr('viewBox', '0 -4 8 8')
+    .attr('refX', 16)
+    .attr('refY', 0)
+    .attr('markerWidth', 6)
+    .attr('markerHeight', 6)
+    .attr('orient', 'auto')
+    .append('path')
+    .attr('d', 'M0,-4L8,0L0,4')
+    .attr('fill', '#2a3555');
+
+  // Layer background bands
+  const bandG = svg.append('g').attr('class', 'layer-bands');
+  Object.entries(LAYER_Y).forEach(([layer, yFrac]) => {
+    const y = yFrac * svgHeight;
+    bandG.append('line')
+      .attr('x1', 0).attr('y1', y).attr('x2', svgWidth).attr('y2', y)
+      .attr('stroke', '#1a2240').attr('stroke-width', 1).attr('stroke-dasharray', '3,6');
+    bandG.append('text')
+      .attr('x', 6).attr('y', y + 12)
+      .attr('class', 'layer-label')
+      .text(LAYER_NAMES[layer]);
+  });
+
+  // Assign fixed y-positions by layer, distribute x evenly
+  const layerCounts = {};
+  graphData.nodes.forEach(n => {
+    layerCounts[n.layer] = (layerCounts[n.layer] || 0) + 1;
+  });
+  const layerIndexes = {};
+  graphData.nodes.forEach(n => {
+    if (layerIndexes[n.layer] === undefined) layerIndexes[n.layer] = 0;
+    const idx   = layerIndexes[n.layer]++;
+    const total = layerCounts[n.layer];
+    const pad   = 50;
+    n.x = pad + (idx + 0.5) * ((svgWidth - 2 * pad) / total);
+    n.y = LAYER_Y[n.layer] * svgHeight;
+    n.fx = n.x;   // Fix position (no physics simulation, pure hierarchical layout)
+    n.fy = n.y;
+    nodeById[n.id] = n;
+  });
+
+  // Build edge lookup for styling
+  const edgeMap = {};
+  graphData.edges.forEach(e => {
+    edgeMap[`${e.source}::${e.target}`] = e;
+  });
+
+  // Draw edges
+  svgLinks = svg.append('g').attr('class', 'links')
+    .selectAll('line')
+    .data(graphData.edges)
+    .join('line')
+    .attr('class', 'link-arrow')
+    .attr('stroke', '#2a3555')
+    .attr('stroke-width', d => {
+      const w = d.weight || 0.3;
+      return 0.8 + w * 2.2;
+    })
+    .attr('marker-end', 'url(#arrowhead)')
+    .attr('x1', d => (nodeById[d.source] || {}).x)
+    .attr('y1', d => (nodeById[d.source] || {}).y)
+    .attr('x2', d => (nodeById[d.target] || {}).x)
+    .attr('y2', d => (nodeById[d.target] || {}).y);
+
+  // Draw node groups
+  const nodeG = svg.append('g').attr('class', 'nodes');
+  const nodeGroups = nodeG.selectAll('g')
+    .data(graphData.nodes)
+    .join('g')
+    .attr('transform', d => `translate(${d.x},${d.y})`)
+    .attr('id', d => `node-g-${d.id}`);
+
+  // Node circles
+  nodeGroups.append('circle')
+    .attr('class', 'node-circle')
+    .attr('r', d => d.layer === 0 ? 10 : d.layer === 4 ? 10 : 8)
+    .attr('fill', d => stateColor(d.current_state || 0))
+    .attr('stroke', d => d.layer === 0 ? '#6366f1' : d.layer === 4 ? '#f97316' : '#3b82f6')
+    .attr('id', d => `node-${d.id}`)
+    .on('mousemove', showTooltip)
+    .on('mouseleave', hideTooltip)
+    .on('click', onNodeClick);
+
+  // Node labels
+  nodeGroups.append('text')
+    .attr('class', 'node-label')
+    .attr('y', 18)
+    .text(d => {
+      // Abbreviate long names
+      const name = d.display_name;
+      return name.length > 18 ? name.slice(0, 16) + '…' : name;
+    });
+
+  svgNodes   = nodeGroups.selectAll('circle');
+  svgLabels  = nodeGroups.selectAll('text');
+}
+
+function updateNodeVisual(nodeId, state) {
+  const circle = d3.select(`#node-${nodeId}`);
+  if (!circle.empty()) {
+    circle
+      .transition().duration(300)
+      .attr('fill', stateColor(state))
+      .attr('r', state >= 0.5 ? 12 : (graphData.nodes.find(n => n.id === nodeId)?.layer === 0 ? 10 : 8))
+      .style('filter', stateGlow(state));
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TOOLTIP
+// ─────────────────────────────────────────────────────────────────────────────
+
+function showTooltip(event, d) {
+  const tt = document.getElementById('tooltip');
+  const state = nodeStates[d.id] || 0;
+  const layer = d.layer;
+  const layerName = LAYER_NAMES[layer];
+  const eta = d.eta != null ? d.eta.toFixed(1) + 'h' : '—';
+
+  tt.innerHTML = `
+    <div class="tt-title">${d.display_name}</div>
+    <div class="tt-row">
+      <span class="tt-key">Layer</span>
+      <span class="tt-val">${layerName}</span>
+    </div>
+    <div class="tt-row">
+      <span class="tt-key">P(damage)</span>
+      <span class="tt-val" style="color:${stateColor(state)}">${state.toFixed(4)}</span>
+    </div>
+    <div class="tt-row">
+      <span class="tt-key">Time to impact</span>
+      <span class="tt-val">${eta}</span>
+    </div>
+    <div class="tt-row">
+      <span class="tt-key">Type</span>
+      <span class="tt-val">${d.type}</span>
+    </div>
+    <div style="margin-top:6px;font-size:0.62rem;color:var(--text-muted);line-height:1.4">
+      ${d.description || ''}
+    </div>
+  `;
+  tt.classList.add('visible');
+  tt.style.left = (event.offsetX + 14) + 'px';
+  tt.style.top  = (event.offsetY - 14) + 'px';
+
+  // Update node datum with current state for next tooltip
+  const nd = nodeById[d.id];
+  if (nd) { nd.current_state = state; nd.eta = nodeById[d.id]?.eta; }
+}
+
+function hideTooltip() {
+  document.getElementById('tooltip').classList.remove('visible');
+}
+
+function onNodeClick(event, d) {
+  // Layer-0 node: allow manual injection
+  if (d.layer === 0) {
+    const val = parseFloat(prompt(`Set hazard level for "${d.display_name}" (0.0 – 1.0):`, '0.8'));
+    if (!isNaN(val) && val >= 0 && val <= 1) {
+      sendWS({ action: 'inject', node: d.id, value: val });
+      addLogEntry(0, d.id, val, 'inject');
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SCENARIOS & CONTROLS
+// ─────────────────────────────────────────────────────────────────────────────
+
+function runScenario(name) {
+  ['a','b','c'].forEach(n => {
+    document.getElementById(`btn-${n}`).classList.toggle('active', n === name);
+  });
+  sendWS({ action: 'scenario', name: name });
+  // Clear log and reset stats
+  clearLog();
+  propagationEventCount = 0;
+  updateStatCount();
+}
+
+function resetGraph() {
+  ['a','b','c'].forEach(n => document.getElementById(`btn-${n}`).classList.remove('active'));
+  sendWS({ action: 'reset' });
+  clearLog();
+  propagationEventCount = 0;
+  updateStatCount();
+}
+
+function runCustom() {
+  ['a','b','c'].forEach(n => document.getElementById(`btn-${n}`).classList.remove('active'));
+  const sliders = document.querySelectorAll('.hazard-slider');
+  sliders.forEach(s => {
+    sendWS({ action: 'inject', node: s.dataset.node, value: parseFloat(s.value) });
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HAZARD SLIDERS (built after graph loads)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function buildSliders() {
+  const container = document.getElementById('sliders');
+  container.innerHTML = '';
+  HAZARD_NODES.forEach(nodeId => {
+    const node = graphData.nodes.find(n => n.id === nodeId);
+    if (!node) return;
+    const name = node.display_name;
+    const row = document.createElement('div');
+    row.className = 'slider-row';
+    row.innerHTML = `
+      <div class="slider-label">
+        <span>${name.length > 20 ? name.slice(0,19)+'…' : name}</span>
+        <span class="slider-value" id="sv-${nodeId}">0.00</span>
+      </div>
+      <input type="range" class="hazard-slider" data-node="${nodeId}"
+             min="0" max="1" step="0.01" value="0"
+             oninput="document.getElementById('sv-${nodeId}').textContent=parseFloat(this.value).toFixed(2)">
+    `;
+    container.appendChild(row);
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INTERVENTION PANEL
+// ─────────────────────────────────────────────────────────────────────────────
+
+function updateInterventionPanel(ranking) {
+  const list = document.getElementById('intervention-list');
+  if (!ranking || ranking.length === 0) {
+    list.innerHTML = '<div style="color:var(--text-muted);font-size:0.72rem;padding:8px">No nodes above damage threshold (0.3).</div>';
+    return;
+  }
+
+  // Show top 5
+  const top = ranking.slice(0, 5);
+  list.innerHTML = '';
+  top.forEach((entry, i) => {
+    const rank = i + 1;
+    const rankStar = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `#${rank}`;
+    const card = document.createElement('div');
+    card.className = `intervention-card rank-${rank}`;
+    const pct = Math.max(0, Math.min(100, entry.pct_averted));
+    const dmgColor = entry.current_state >= 0.7 ? 'var(--red)' :
+                     entry.current_state >= 0.4 ? 'var(--orange)' : 'var(--yellow)';
+    card.innerHTML = `
+      <div class="int-header">
+        <div class="int-rank">${rankStar}</div>
+        <div class="int-name">${entry.display_name}</div>
+      </div>
+      <div class="int-state" style="color:${dmgColor}">
+        P = ${entry.current_state.toFixed(3)}
+      </div>
+      <div class="int-bar-wrap">
+        <div class="int-bar" style="width:${(entry.current_state * 100).toFixed(0)}%"></div>
+      </div>
+      <div class="int-meta">
+        <div class="int-meta-item">
+          Damage averted: <span class="int-meta-val">${entry.damage_averted.toFixed(4)}</span>
+        </div>
+        <div class="int-meta-item">
+          Saves: <span class="int-meta-val">${entry.nodes_rescued} nodes</span>
+        </div>
+        <div class="int-meta-item">
+          Layer: <span class="int-meta-val">${entry.layer}</span>
+        </div>
+      </div>
+      <div style="font-size:0.61rem;color:var(--text-muted);margin-top:4px">
+        ${pct.toFixed(1)}% of total outcome damage averted if fixed
+      </div>
+    `;
+    list.appendChild(card);
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TIMELINE LOG
+// ─────────────────────────────────────────────────────────────────────────────
+
+function addLogEntry(time, nodeId, state, type) {
+  const log  = document.getElementById('timeline-log');
+  const node = graphData.nodes.find(n => n.id === nodeId);
+  const name = node ? node.display_name : nodeId;
+  const isImpact = state >= 0.5;
+  const isInject = type === 'inject';
+
+  const entry = document.createElement('div');
+  entry.className = `log-entry${isImpact ? ' impact' : ''}${isInject ? ' inject' : ''}`;
+  entry.innerHTML = `
+    <span class="log-time">t=${parseFloat(time).toFixed(1)}h</span>
+    <span class="log-node">${name}</span>
+    <span class="log-state" style="color:${stateColor(state)}">${state.toFixed(3)}</span>
+  `;
+  log.insertBefore(entry, log.firstChild);  // newest at top
+
+  // Keep log trimmed to 100 entries
+  while (log.children.length > 100) log.removeChild(log.lastChild);
+}
+
+function clearLog() {
+  document.getElementById('timeline-log').innerHTML = '';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STATS PANEL
+// ─────────────────────────────────────────────────────────────────────────────
+
+function updateStatsPanel(outputs) {
+  if (!outputs) {
+    document.getElementById('stat-damage').textContent = '0.000';
+    document.getElementById('stat-nodes-above').textContent = '0';
+    document.getElementById('stat-impact').textContent = '0';
+    return;
+  }
+
+  const damage = outputs.total_outcome_damage || 0;
+  const nAbove = outputs.n_nodes_above_threshold || 0;
+  const nImpact = Object.values(outputs.damage_probabilities || {}).filter(v => v >= 0.5).length;
+
+  const damageEl = document.getElementById('stat-damage');
+  damageEl.textContent = damage.toFixed(3);
+  damageEl.className = `stat-value ${damage > 3 ? 'danger' : damage > 1.5 ? 'warning' : 'ok'}`;
+
+  const aboveEl = document.getElementById('stat-nodes-above');
+  aboveEl.textContent = nAbove;
+  aboveEl.className = `stat-value ${nAbove > 10 ? 'danger' : nAbove > 5 ? 'warning' : 'ok'}`;
+
+  const impactEl = document.getElementById('stat-impact');
+  impactEl.textContent = nImpact;
+  impactEl.className = `stat-value ${nImpact > 8 ? 'danger' : nImpact > 3 ? 'warning' : 'ok'}`;
+}
+
+function updateStatCount() {
+  document.getElementById('stat-events').textContent = propagationEventCount;
+}
+
+function updateLayerBreakdown() {
+  const container = document.getElementById('layer-breakdown');
+  container.innerHTML = '';
+  const layerNames = {
+    0: 'Hazard', 1: 'Water Infra', 2: 'Agriculture',
+    3: 'People Impacts', 4: 'Final Impacts',
+  };
+  for (let layer = 0; layer <= 4; layer++) {
+    const layerNodes = graphData.nodes.filter(n => n.layer === layer);
+    const avgState   = layerNodes.length
+      ? layerNodes.reduce((s, n) => s + (nodeStates[n.id] || 0), 0) / layerNodes.length
+      : 0;
+    const pct = Math.round(avgState * 100);
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;flex-direction:column;gap:3px';
+    row.innerHTML = `
+      <div style="display:flex;justify-content:space-between">
+        <span style="color:var(--text-dim)">L${layer}: ${layerNames[layer]}</span>
+        <span style="font-weight:700;color:${stateColor(avgState)}">${pct}%</span>
+      </div>
+      <div style="background:var(--border);border-radius:2px;height:3px">
+        <div style="width:${pct}%;height:3px;border-radius:2px;background:${stateColor(avgState)};transition:width 0.4s"></div>
+      </div>
+    `;
+    container.appendChild(row);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TABS
+// ─────────────────────────────────────────────────────────────────────────────
+
+function switchTab(name) {
+  document.querySelectorAll('.tab-btn').forEach((btn, i) => {
+    const tabs = ['interventions', 'timeline', 'stats'];
+    btn.classList.toggle('active', tabs[i] === name);
+  });
+  document.querySelectorAll('.tab-content').forEach(el => {
+    el.classList.toggle('active', el.id === `tab-${name}`);
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RESIZE HANDLER
+// ─────────────────────────────────────────────────────────────────────────────
+
+window.addEventListener('resize', () => {
+  if (graphData.nodes.length > 0) buildGraph();
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INITIALIZATION
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Wait for WS init message which will call buildGraph() and then buildSliders()
+const _origBuildGraph = buildGraph;
+buildGraph = function() {
+  _origBuildGraph();
+  buildSliders();
+};
+
+connectWS();
+
+// Timeout fallback if WS doesn't connect in 3s
+setTimeout(() => {
+  if (graphData.nodes.length === 0) {
+    // Try REST fallback
+    fetch('/graph')
+      .then(r => r.json())
+      .then(data => {
+        graphData = data;
+        data.nodes.forEach(n => { nodeStates[n.id] = n.current_state; });
+        buildGraph();
+        document.getElementById('loading-overlay').classList.add('hidden');
+      })
+      .catch(() => {
+        document.querySelector('.loading-text').textContent =
+          'Cannot connect to server. Start: uvicorn main:app --reload';
+      });
+  }
+}, 3000);
+</script>
+</body>
+</html>
